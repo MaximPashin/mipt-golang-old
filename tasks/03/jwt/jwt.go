@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -59,23 +60,21 @@ func Encode(data interface{}, opts ...Option) ([]byte, error) {
 	}
 
 	encoder := base64.RawURLEncoding
+	var token bytes.Buffer
+
 	marshaledHeader, _ := json.Marshal(header)
 	marshaledPayload, _ := json.Marshal(payload)
-	tokenHeader := make([]byte, encoder.EncodedLen(len(marshaledHeader)))
-	encoder.Encode(tokenHeader, marshaledHeader)
-	tokenPayload := make([]byte, encoder.EncodedLen(len(marshaledPayload)))
-	encoder.Encode(tokenPayload, marshaledPayload)
-	token := append(tokenHeader, "."[0])
-	token = append(token, tokenPayload...)
+
+	token.WriteString(encoder.EncodeToString(marshaledHeader))
+	token.WriteString(".")
+	token.WriteString(encoder.EncodeToString(marshaledPayload))
 
 	tokenHash := hmac.New(tokenHashFunc, key)
-	tokenHash.Write(token)
+	tokenHash.Write(token.Bytes())
 	vrfSign := tokenHash.Sum(nil)
-	tokenVrfSign := make([]byte, encoder.EncodedLen(len(vrfSign)))
-	encoder.Encode(tokenVrfSign, vrfSign)
-	token = append(token, "."[0])
-	token = append(token, tokenVrfSign...)
-	return token, nil
+	token.WriteString(".")
+	token.WriteString(encoder.EncodeToString(vrfSign))
+	return token.Bytes(), nil
 }
 
 func Decode(token []byte, data interface{}, opts ...Option) error {
