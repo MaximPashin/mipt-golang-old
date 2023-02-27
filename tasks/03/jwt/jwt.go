@@ -48,7 +48,54 @@ func Encode(data interface{}, opts ...Option) ([]byte, error) {
 }
 
 func Decode(token []byte, data interface{}, opts ...Option) error {
-	// TODO: implement me
+	conf := getConfig(opts...)
+
+	tokenParts := bytes.Split(token, []byte("."))
+	if len(tokenParts) != 3 {
+		return ErrInvalidToken
+	}
+	tokenHeader := tokenParts[0]
+	tokenPayload := tokenParts[1]
+
+	header, err := decodeHeader(tokenHeader)
+	if err != nil {
+		return err
+	}
+
+	payload, err := decodePayload(tokenPayload)
+	if err != nil {
+		return err
+	}
+
+	key := conf.Key
+
+	signMethod, err := getSignMethod(header)
+
+	if signMethod != conf.SignMethod {
+		return ErrSignMethodMismatched
+	}
+
+	buildedToken := buildToken(header, payload, signMethod, key)
+
+	if bytes.Compare(buildedToken, token) != 0 {
+		return ErrSignatureInvalid
+	}
+
+	exp_data, ok := (*payload)["exp"]
+	if ok {
+		expires := time.Unix(0, int64(exp_data.(float64)))
+		if timeFunc().After(expires) {
+			return ErrTokenExpired
+		}
+	}
+
+	switch v := data.(type) {
+	case *map[string]interface{}:
+		*v = (*payload)["d"].(map[string]interface{})
+	case *interface{}:
+		*v = (*payload)["d"].(interface{})
+	}
+
 	return nil
 }
 
@@ -60,7 +107,7 @@ func getConfig(opts ...Option) *config {
 	return &conf
 }
 
-func getHeader(conf *config) (map[string]interface{}, error) {
+func getHeader(conf *config) (*map[string]interface{}, error) {
 	signMethod := conf.SignMethod
 	if signMethod != HS256 && signMethod != HS512 {
 		return nil, ErrInvalidSignMethod
@@ -69,10 +116,10 @@ func getHeader(conf *config) (map[string]interface{}, error) {
 		"alg": signMethod,
 		"typ": "JWT",
 	}
-	return header, nil
+	return &header, nil
 }
 
-func getPayload(data *interface{}, conf *config) (map[string]interface{}, error) {
+func getPayload(data *interface{}, conf *config) (*map[string]interface{}, error) {
 	expires, err := getExpires(conf)
 	if err != nil {
 		return nil, err
@@ -84,7 +131,7 @@ func getPayload(data *interface{}, conf *config) (map[string]interface{}, error)
 	if expires != nil {
 		payload["exp"] = expires.Unix()
 	}
-	return payload, nil
+	return &payload, nil
 }
 
 func getExpires(conf *config) (*time.Time, error) {
@@ -101,12 +148,12 @@ func getExpires(conf *config) (*time.Time, error) {
 		return nil, nil
 	}
 	if timeFunc().After(*expires) {
-		return nil, ErrConfigurationMalformed
+		return expires, ErrConfigurationMalformed
 	}
 	return expires, nil
 }
 
-func buildToken(header map[string]interface{}, payload map[string]interface{}, signMethod SignMethod, key []byte) []byte {
+func buildToken(header *map[string]interface{}, payload *map[string]interface{}, signMethod SignMethod, key []byte) []byte {
 	encoder := base64.RawURLEncoding
 	var token bytes.Buffer
 
@@ -136,6 +183,59 @@ func getHashFunc(signMethod SignMethod) func() hash.Hash {
 		tokenHashFunc = sha512.New
 	}
 	return tokenHashFunc
+}
+
+func decodeHeader(tokenHeader []byte) (*map[string]interface{}, error) {
+	encoder := base64.RawURLEncoding
+
+	decodedHeader := make([]byte, encoder.DecodedLen(len(tokenHeader)))
+	_, err := encoder.Decode(decodedHeader, tokenHeader)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	header := make(map[string]interface{})
+	err = json.Unmarshal(decodedHeader, &header)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if header["typ"] != "JWT" || len(header) != 2 {
+		return nil, ErrInvalidToken
+	}
+
+	return &header, nil
+}
+
+func decodePayload(tokenPayload []byte) (*map[string]interface{}, error) {
+	encoder := base64.RawURLEncoding
+
+	decodedPayload := make([]byte, encoder.DecodedLen(len(tokenPayload)))
+	_, err := encoder.Decode(decodedPayload, tokenPayload)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+
+	payload := make(map[string]interface{})
+	err = json.Unmarshal(decodedPayload, &payload)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	return &payload, nil
+}
+
+func getSignMethod(header *map[string]interface{}) (SignMethod, error) {
+	var signMethod SignMethod
+	switch v := (*header)["alg"].(type) {
+	case string:
+		signMethod = SignMethod(v)
+	default:
+		return "", ErrInvalidToken
+	}
+
+	if signMethod != HS256 && signMethod != HS512 {
+		return "", ErrInvalidSignMethod
+	}
+
+	return signMethod, nil
 }
 
 // To mock time in tests
