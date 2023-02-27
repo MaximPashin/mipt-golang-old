@@ -29,14 +29,14 @@ var (
 )
 
 func Encode(data interface{}, opts ...Option) ([]byte, error) {
-	conf := getConfig(opts...)
+	conf := formConfig(opts...)
 
-	header, err := getHeader(conf)
+	header, err := formHeader(conf)
 	if err != nil {
 		return nil, err
 	}
 
-	payload, err := getPayload(&data, conf)
+	payload, err := formPayload(&data, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func Encode(data interface{}, opts ...Option) ([]byte, error) {
 }
 
 func Decode(token []byte, data interface{}, opts ...Option) error {
-	conf := getConfig(opts...)
+	conf := formConfig(opts...)
 
 	tokenParts := bytes.Split(token, []byte("."))
 	if len(tokenParts) != 3 {
@@ -99,7 +99,7 @@ func Decode(token []byte, data interface{}, opts ...Option) error {
 	return nil
 }
 
-func getConfig(opts ...Option) *config {
+func formConfig(opts ...Option) *config {
 	conf := config{}
 	for _, opt := range opts {
 		opt(&conf)
@@ -107,7 +107,7 @@ func getConfig(opts ...Option) *config {
 	return &conf
 }
 
-func getHeader(conf *config) (*map[string]interface{}, error) {
+func formHeader(conf *config) (*map[string]interface{}, error) {
 	signMethod := conf.SignMethod
 	if signMethod != HS256 && signMethod != HS512 {
 		return nil, ErrInvalidSignMethod
@@ -119,7 +119,7 @@ func getHeader(conf *config) (*map[string]interface{}, error) {
 	return &header, nil
 }
 
-func getPayload(data *interface{}, conf *config) (*map[string]interface{}, error) {
+func formPayload(data *interface{}, conf *config) (*map[string]interface{}, error) {
 	expires, err := getExpires(conf)
 	if err != nil {
 		return nil, err
