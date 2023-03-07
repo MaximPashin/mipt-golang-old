@@ -65,6 +65,9 @@ func fetch(c *http.Client, req *http.Request) *Result {
 	}
 	var result *Result
 	response, err := c.Do(req)
+	if response != nil {
+		defer response.Body.Close()
+	}
 	if err != nil {
 		result = &Result{Error: err}
 	} else {
@@ -96,7 +99,6 @@ func buildResult(response *http.Response) (*Result, error) {
 	if result.StatusCode >= 300 && result.StatusCode < 400 {
 		return nil, errRedirect
 	} else {
-		defer response.Body.Close()
 		if _, err := ioutil.ReadAll(response.Body); err != nil {
 			result.Error = err
 		}
